@@ -1,0 +1,151 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local espEnabled, drawings = false, {}
+
+-- Interface Gráfica Otimizada
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ESP_UI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = gethui and gethui() or game:GetService("CoreGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 160, 0, 90)
+frame.Position = UDim2.new(0, 50, 0, 50)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.Text = "ESP Box"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 14
+title.Parent = frame
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0, 140, 0, 40)
+button.Position = UDim2.new(0, 10, 0, 40)
+button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+button.Text = "ESP: OFF"
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Font = Enum.Font.SourceSansBold
+button.TextSize = 14
+button.Parent = frame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = button
+
+-- Criação de Desenhos (Linhas e Textos)
+local function createDrawing(class, properties)
+    local obj = Drawing.new(class)
+    for k, v in pairs(properties) do obj[k] = v end
+    return obj
+end
+
+local function addPlayerESP(player)
+    if player == LocalPlayer then return end
+    
+    local lines = {}
+    for _, name in ipairs({"head_spine", "spine_pelvis", "left_arm", "right_arm", "left_leg", "right_leg"}) do
+        lines[name] = createDrawing("Line", {Thickness = 1, Color = Color3.fromRGB(0, 255, 0), Visible = false})
+    end
+    
+    drawings[player] = {
+        skeleton = lines,
+        name = createDrawing("Text", {Size = 14, Center = true, Outline = true, Color = Color3.fromRGB(255, 255, 255), Visible = false})
+    }
+end
+
+local function removePlayerESP(player)
+    if drawings[player] then
+        for _, obj in pairs(drawings[player].skeleton) do obj:Remove() end
+        drawings[player].name:Remove()
+        drawings[player] = nil
+    end
+end
+
+-- Inicialização e Eventos
+for _, player in ipairs(Players:GetPlayers()) do addPlayerESP(player) end
+Players.PlayerAdded:Connect(addPlayerESP)
+Players.PlayerRemoving:Connect(removePlayerESP)
+
+-- Alternador ON/OFF
+button.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    button.Text = espEnabled and "ESP: ON" or "ESP: OFF"
+    button.BackgroundColor3 = espEnabled and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+    
+    if not espEnabled then
+        for _, data in pairs(drawings) do
+            for _, line in pairs(data.skeleton) do line.Visible = false end
+            data.name.Visible = false
+        end
+    end
+end)
+
+-- Loop Principal de Renderização (Otimizado)
+RunService.RenderStepped:Connect(function()
+    if not espEnabled then return end
+
+    for player, data in pairs(drawings) do
+        local char = player.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        
+        if char and root and hum and hum.Health > 0 then
+            local head = char:FindFirstChild("Head")
+            local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+            local lArm = char:FindFirstChild("Left Arm") or char:FindFirstChild("LeftUpperArm")
+            local rArm = char:FindFirstChild("Right Arm") or char:FindFirstChild("RightUpperArm")
+            local lLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("LeftUpperLeg")
+            local rLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("RightUpperLeg")
+
+            if head and torso then
+                local headPos, headVis = Camera:WorldToViewportPoint(head.Position)
+                
+                if headVis then
+                    data.name.Text = player.Name
+                    data.name.Position = Vector2.new(headPos.X, headPos.Y - 25)
+                    data.name.Visible = true
+
+                    local function updateLine(line, p1, p2)
+                        if not p1 or not p2 then line.Visible = false return end
+                        local pos1, vis1 = Camera:WorldToViewportPoint(p1.Position)
+                        local pos2, vis2 = Camera:WorldToViewportPoint(p2.Position)
+                        if vis1 or vis2 then
+                            line.From = Vector2.new(pos1.X, pos1.Y)
+                            line.To = Vector2.new(pos2.X, pos2.Y)
+                            line.Visible = true
+                        else
+                            line.Visible = false
+                        end
+                    end
+
+                    updateLine(data.skeleton.head_spine, head, torso)
+                    updateLine(data.skeleton.spine_pelvis, torso, root)
+                    updateLine(data.skeleton.left_arm, torso, lArm)
+                    updateLine(data.skeleton.right_arm, torso, rArm)
+                    updateLine(data.skeleton.left_leg, root, lLeg)
+                    updateLine(data.skeleton.right_leg, root, rLeg)
+                    continue
+                end
+            end
+        end
+        
+        -- Esconde tudo se o jogador sumir da tela ou morrer
+        for _, line in pairs(data.skeleton) do line.Visible = false end
+        data.name.Visible = false
+    end
+end)
